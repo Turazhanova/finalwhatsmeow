@@ -212,6 +212,7 @@ func main() {
 	router.HandleFunc("/qr-photo", qrPhotoHandler)
 	router.HandleFunc("/get-host-info", getHostInfoHandler)       // Новый маршрут
 	router.HandleFunc("/get-all-messages", getAllMessagesHandler) // Новый маршрут для получения всех сообщений
+	router.HandleFunc("/check-user", checkUserHandler)            // Новый маршрут для проверки номера телефона
 
 	go http.ListenAndServe(":8080", router)
 
@@ -754,4 +755,29 @@ func initDB() error {
 		return fmt.Errorf("failed to create messages table: %v", err)
 	}
 	return nil
+}
+func checkUserHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PhoneNumber string `json:"phone_number"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if req.PhoneNumber == "" {
+		http.Error(w, "Phone number is required", http.StatusBadRequest)
+		return
+	}
+
+	resp, err := client.IsOnWhatsApp([]string{req.PhoneNumber})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to check phone number: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if len(resp) > 0 && resp[0].IsIn {
+		json.NewEncoder(w).Encode(map[string]bool{"exists": true})
+	} else {
+		json.NewEncoder(w).Encode(map[string]bool{"exists": false})
+	}
 }
