@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"github.com/skip2/go-qrcode"
 	"io/ioutil"
-	_ "io/ioutil"
 	"mime"
 	"net/http"
 	"os"
@@ -44,12 +43,12 @@ var (
 	logLevel        = "INFO"
 	debugLogs       = flag.Bool("debug", false, "Enable debug logs?")
 	dbDialect       = flag.String("db-dialect", "sqlite3", "Database dialect (sqlite3 or postgres)")
-	dbAddress       = flag.String("db-address", "file:mdtest.db?_foreign_keys=on", "Database address")
+	dbAddress       = flag.String("db-address", "file:/data/mdtest.db?_foreign_keys=on", "Database address")
 	requestFullSync = flag.Bool("request-full-sync", false, "Request full (1 year) history sync when logging in?")
 	pairRejectChan  = make(chan bool, 1)
 	historySyncID   int32
 	startupTime     = time.Now().Unix()
-	programID       = flag.String("program-id", "", "Unique identifier for the program")
+	programID       = flag.String("program-id", "", "Unique identifier for the program") // Initialize as an empty string
 )
 
 type HostInfo struct {
@@ -92,6 +91,12 @@ func getHostInfoHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	waBinary.IndentXML = true
+
+	// Check if PROGRAM_ID environment variable is set and use it as the default value for program-id flag
+	if envProgramID := os.Getenv("PROGRAM_ID"); envProgramID != "" {
+		flag.Set("program-id", envProgramID)
+	}
+
 	flag.Parse()
 
 	if *programID == "" {
@@ -434,6 +439,11 @@ func receiveHandler(rawEvt interface{}) {
 				return
 			}
 			exts, _ := mime.ExtensionsByType(img.GetMimetype())
+			if len(exts) == 0 {
+				log.Warnf("Failed to determine file extension for mimetype: %s, using fallback .jpg", img.GetMimetype())
+				exts = append(exts, ".jpg") // Fallback extension for images
+			}
+			log.Infof("Image file extension determined: %s", exts[0])
 			filePath = fmt.Sprintf("media/image/%s%s", event.Info.ID, exts[0])
 			err = saveMediaFile(filePath, data)
 			if err != nil {
@@ -449,6 +459,11 @@ func receiveHandler(rawEvt interface{}) {
 				return
 			}
 			exts, _ := mime.ExtensionsByType(vid.GetMimetype())
+			if len(exts) == 0 {
+				log.Warnf("Failed to determine file extension for mimetype: %s, using fallback .mp4", vid.GetMimetype())
+				exts = append(exts, ".mp4") // Fallback extension for videos
+			}
+			log.Infof("Video file extension determined: %s", exts[0])
 			filePath = fmt.Sprintf("media/video/%s%s", event.Info.ID, exts[0])
 			err = saveMediaFile(filePath, data)
 			if err != nil {
@@ -463,7 +478,6 @@ func receiveHandler(rawEvt interface{}) {
 				log.Errorf("Failed to download audio: %v", err)
 				return
 			}
-			// Ensure audio files are saved with .ogg extension
 			filePath = fmt.Sprintf("media/audio/%s.ogg", event.Info.ID)
 			err = saveMediaFile(filePath, data)
 			if err != nil {
@@ -479,6 +493,11 @@ func receiveHandler(rawEvt interface{}) {
 				return
 			}
 			exts, _ := mime.ExtensionsByType(doc.GetMimetype())
+			if len(exts) == 0 {
+				log.Warnf("Failed to determine file extension for mimetype: %s, using fallback .pdf", doc.GetMimetype())
+				exts = append(exts, ".pdf") // Fallback extension for documents
+			}
+			log.Infof("Document file extension determined: %s", exts[0])
 			filePath = fmt.Sprintf("media/document/%s%s", event.Info.ID, exts[0])
 			err = saveMediaFile(filePath, data)
 			if err != nil {
@@ -641,6 +660,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 				ButtonText: &waProto.ButtonsMessage_Button_ButtonText{
 					DisplayText: proto.String(btn.DisplayText),
 				},
+				Type: waProto.ButtonsMessage_Button_RESPONSE.Enum(),
 			}
 		}
 		message = &waProto.Message{
